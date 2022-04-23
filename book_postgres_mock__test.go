@@ -48,13 +48,17 @@ func (suite *TestSuiteEnv) SetupSuite() {
 	log.Println("setup suite")
 	gin.SetMode(gin.ReleaseMode)
 
-	db, mock := setupDBMock(suite)
+	db, sqlDB, mock := setupDBMock(suite)
+	defer sqlDB.Close()
 
 	mock.ExpectQuery(`SELECT count\(\*\) FROM information_schema\.tables WHERE table_schema = CURRENT_SCHEMA\(\) AND table_name = \$1 AND table_type = \$2`).WithArgs("books", "BASE TABLE").WillReturnRows(sqlmock.NewRows(
 		[]string{"TABLES"}))
 
 	mock.ExpectExec(`CREATE TABLE "books" \("id" bigserial,"title" text,"author" text,PRIMARY KEY \("id"\)\)`).WillReturnResult(driver.RowsAffected(1))
 	db.AutoMigrate(&models.Book{})
+	if err := mock.ExpectationsWereMet(); err != nil {
+		suite.Fail("Mock", err)
+	}
 }
 
 // Running after all tests are completed
@@ -62,7 +66,7 @@ func (suite *TestSuiteEnv) TearDownSuite() {
 	log.Println("teardown suite")
 }
 
-func setupDBMock(suite *TestSuiteEnv) (*gorm.DB, sqlmock.Sqlmock) {
+func setupDBMock(suite *TestSuiteEnv) (*gorm.DB, *sql.DB, sqlmock.Sqlmock) {
 	var err error
 	var sqlDB *sql.DB
 	var mock sqlmock.Sqlmock
@@ -77,13 +81,13 @@ func setupDBMock(suite *TestSuiteEnv) (*gorm.DB, sqlmock.Sqlmock) {
 	if err != nil {
 		suite.Errorf(err, "Failed to setup mockup gorm")
 	}
-	return db, mock
+	return db, sqlDB, mock
 }
 
 func (suite *TestSuiteEnv) marshal(v any) string {
 	var str string
 	if bb, err := json.MarshalIndent(v, "", "\t"); err != nil {
-		suite.Error(err)
+		suite.Fail("marshal", err, v)
 	} else {
 		str = string(bb)
 	}
@@ -93,7 +97,8 @@ func (suite *TestSuiteEnv) marshal(v any) string {
 func (suite *TestSuiteEnv) TestBooks_FindBooks() {
 	a := suite.Assert()
 
-	db, mock := setupDBMock(suite)
+	db, sqlDB, mock := setupDBMock(suite)
+	defer sqlDB.Close()
 	models.DB = db
 
 	mock.ExpectQuery(`SELECT \* FROM "books"`).WithArgs().WillReturnRows(sqlmock.NewRows([]string{"id", "title", "author"}).AddRow(100, "The Adventures of Tintin", "Herge").AddRow(200, "Sorcerer Stone", "JK Rowling"))
@@ -102,6 +107,9 @@ func (suite *TestSuiteEnv) TestBooks_FindBooks() {
 	ctx, _ := gin.CreateTestContext(recorder)
 
 	controllers.FindBooks(ctx)
+	if err := mock.ExpectationsWereMet(); err != nil {
+		suite.Fail("Mock", err)
+	}
 	a.Equal(200, recorder.Code, "Response Code")
 	var res ResponseBooks
 	if err := json.Unmarshal(recorder.Body.Bytes(), &res); err != nil {
@@ -126,7 +134,8 @@ func (suite *TestSuiteEnv) TestBooks_FindBooks() {
 func (suite *TestSuiteEnv) TestBooks_FindBook() {
 	a := suite.Assert()
 
-	db, mock := setupDBMock(suite)
+	db, sqlDB, mock := setupDBMock(suite)
+	defer sqlDB.Close()
 	models.DB = db
 
 	mock.ExpectQuery(`SELECT \* FROM "books" WHERE id = \$1 ORDER BY "books"."id" LIMIT 1`).WithArgs("100").WillReturnRows(sqlmock.NewRows([]string{"id", "title", "author"}).AddRow(100, "The Adventures of Tintin", "Herge"))
@@ -136,6 +145,9 @@ func (suite *TestSuiteEnv) TestBooks_FindBook() {
 	ctx.Params = append(ctx.Params, gin.Param{Key: "id", Value: "100"})
 
 	controllers.FindBook(ctx)
+	if err := mock.ExpectationsWereMet(); err != nil {
+		suite.Fail("Mock", err)
+	}
 	a.Equal(200, recorder.Code, "Response Code")
 	var res ResponseBook
 	if err := json.Unmarshal(recorder.Body.Bytes(), &res); err != nil {
@@ -153,7 +165,8 @@ func (suite *TestSuiteEnv) TestBooks_FindBook() {
 func (suite *TestSuiteEnv) TestBooks_FindBook_NotFound() {
 	a := suite.Assert()
 
-	db, mock := setupDBMock(suite)
+	db, sqlDB, mock := setupDBMock(suite)
+	defer sqlDB.Close()
 	models.DB = db
 
 	mock.ExpectQuery(`SELECT \* FROM "books" WHERE id = \$1 ORDER BY "books"."id" LIMIT 1`).WithArgs("100").WillReturnRows(sqlmock.NewRows([]string{"id", "title", "author"}))
@@ -163,10 +176,13 @@ func (suite *TestSuiteEnv) TestBooks_FindBook_NotFound() {
 	ctx.Params = append(ctx.Params, gin.Param{Key: "id", Value: "100"})
 
 	controllers.FindBook(ctx)
+	if err := mock.ExpectationsWereMet(); err != nil {
+		suite.Fail("Mock", err)
+	}
 	a.Equal(400, recorder.Code, "Response Code")
 	var res ResponseError
 	if err := json.Unmarshal(recorder.Body.Bytes(), &res); err != nil {
-		a.Error(err)
+		suite.Fail("Mock", err)
 	}
 	a.Equal(suite.marshal(ResponseError{
 		Error: "Record not found!",
@@ -175,7 +191,8 @@ func (suite *TestSuiteEnv) TestBooks_FindBook_NotFound() {
 func (suite *TestSuiteEnv) TestBooks_Create() {
 	a := suite.Assert()
 
-	db, mock := setupDBMock(suite)
+	db, sqlDB, mock := setupDBMock(suite)
+	defer sqlDB.Close()
 	models.DB = db
 
 	mock.ExpectBegin()
@@ -191,6 +208,9 @@ func (suite *TestSuiteEnv) TestBooks_Create() {
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/books", bytes.NewBuffer(bookBytes))
 
 	controllers.CreateBook(ctx)
+	if err := mock.ExpectationsWereMet(); err != nil {
+		suite.Fail("Mock", err)
+	}
 	a.Equal(200, recorder.Code, "Response Code")
 	var res ResponseBook
 	if err := json.Unmarshal(recorder.Body.Bytes(), &res); err != nil {
@@ -208,7 +228,8 @@ func (suite *TestSuiteEnv) TestBooks_Create() {
 func (suite *TestSuiteEnv) TestBooks_Update() {
 	a := suite.Assert()
 
-	db, mock := setupDBMock(suite)
+	db, sqlDB, mock := setupDBMock(suite)
+	defer sqlDB.Close()
 	models.DB = db
 
 	mock.ExpectQuery(`SELECT \* FROM "books" WHERE id = \$1 ORDER BY "books"."id" LIMIT 1`).WithArgs("100").WillReturnRows(sqlmock.NewRows([]string{"id", "title", "author"}).AddRow(100, "The Adventures of Tintin", "Herge"))
@@ -226,6 +247,9 @@ func (suite *TestSuiteEnv) TestBooks_Update() {
 	ctx.Params = append(ctx.Params, gin.Param{Key: "id", Value: "100"})
 
 	controllers.UpdateBook(ctx)
+	if err := mock.ExpectationsWereMet(); err != nil {
+		suite.Fail("Mock", err)
+	}
 	a.Equal(200, recorder.Code, "Response Code")
 	var res ResponseBook
 	if err := json.Unmarshal(recorder.Body.Bytes(), &res); err != nil {
@@ -243,7 +267,8 @@ func (suite *TestSuiteEnv) TestBooks_Update() {
 func (suite *TestSuiteEnv) TestBooks_Delete() {
 	a := suite.Assert()
 
-	db, mock := setupDBMock(suite)
+	db, sqlDB, mock := setupDBMock(suite)
+	defer sqlDB.Close()
 	models.DB = db
 
 	mock.ExpectQuery(`SELECT \* FROM "books" WHERE id = \$1 ORDER BY "books"."id" LIMIT 1`).WithArgs("100").WillReturnRows(sqlmock.NewRows([]string{"id", "title", "author"}).AddRow(100, "The Adventures of Tintin", "Herge"))
@@ -257,6 +282,9 @@ func (suite *TestSuiteEnv) TestBooks_Delete() {
 	ctx.Params = append(ctx.Params, gin.Param{Key: "id", Value: "100"})
 
 	controllers.DeleteBook(ctx)
+	if err := mock.ExpectationsWereMet(); err != nil {
+		suite.Fail("Mock", err)
+	}
 	a.Equal(200, recorder.Code, "Response Code")
 	var res Response
 	if err := json.Unmarshal(recorder.Body.Bytes(), &res); err != nil {

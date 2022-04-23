@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/senomas/go-api/models"
+	"gorm.io/gorm/clause"
 )
 
 type CreateBookInput struct {
@@ -61,7 +62,7 @@ func CreateBook(c *gin.Context) {
 func UpdateBook(c *gin.Context) {
 	// Get model if exist
 	var book models.Book
-	if err := models.DB.Where("id = ?", c.Param("id")).First(&book).Error; err != nil {
+	if err := models.DB.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", c.Param("id")).First(&book).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Record not found!"})
 		return
 	}
