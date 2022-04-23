@@ -1,23 +1,16 @@
 package main
 
 import (
-	"bytes"
-	"database/sql"
 	"database/sql/driver"
-	"encoding/json"
 	"log"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/gin-gonic/gin"
 	"github.com/senomas/go-api/controllers"
 	"github.com/senomas/go-api/models"
 	"github.com/stretchr/testify/suite"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-
-	"github.com/gin-gonic/gin"
 )
 
 type ResponseBooks struct {
@@ -36,10 +29,6 @@ type ResponseError struct {
 	Error string `json:"error"`
 }
 
-type TestSuiteEnv struct {
-	suite.Suite
-}
-
 func TestSuite(t *testing.T) {
 	suite.Run(t, new(TestSuiteEnv))
 }
@@ -48,74 +37,39 @@ func (suite *TestSuiteEnv) SetupSuite() {
 	log.Println("setup suite")
 	gin.SetMode(gin.ReleaseMode)
 
-	db, sqlDB, mock := setupDBMock(suite)
+	db, sqlDB, mock := SetupDBMock(suite)
 	defer sqlDB.Close()
 
-	mock.ExpectQuery(`SELECT count\(\*\) FROM information_schema\.tables WHERE table_schema = CURRENT_SCHEMA\(\) AND table_name = \$1 AND table_type = \$2`).WithArgs("books", "BASE TABLE").WillReturnRows(sqlmock.NewRows(
+	mock.ExpectQuery(QuoteMeta(`SELECT count(*) FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = $1 AND table_type = $2`)).WithArgs("books", "BASE TABLE").WillReturnRows(sqlmock.NewRows(
 		[]string{"TABLES"}))
 
-	mock.ExpectExec(`CREATE TABLE "books" \("id" bigserial,"title" text,"author" text,PRIMARY KEY \("id"\)\)`).WillReturnResult(driver.RowsAffected(1))
+	mock.ExpectExec(QuoteMeta(`CREATE TABLE "books" ("id" bigserial,"title" text,"author" text,PRIMARY KEY ("id"))`)).WillReturnResult(driver.RowsAffected(1))
 	db.AutoMigrate(&models.Book{})
 	if err := mock.ExpectationsWereMet(); err != nil {
 		suite.Fail("Mock", err)
 	}
+
+	r := gin.Default()
+	SetupRoutes(r)
+
+	suite.server = httptest.NewServer(r)
+	log.Printf("Test server start %s", suite.server.URL)
 }
 
 // Running after all tests are completed
 func (suite *TestSuiteEnv) TearDownSuite() {
 	log.Println("teardown suite")
-}
-
-func setupDBMock(suite *TestSuiteEnv) (*gorm.DB, *sql.DB, sqlmock.Sqlmock) {
-	var err error
-	var sqlDB *sql.DB
-	var mock sqlmock.Sqlmock
-	sqlDB, mock, err = sqlmock.New()
-	if err != nil {
-		suite.Errorf(err, "Failed to open mock sql db")
-	}
-	var db *gorm.DB
-	db, err = gorm.Open(postgres.New(postgres.Config{
-		Conn: sqlDB,
-	}), &gorm.Config{})
-	if err != nil {
-		suite.Errorf(err, "Failed to setup mockup gorm")
-	}
-	return db, sqlDB, mock
-}
-
-func (suite *TestSuiteEnv) marshal(v any) string {
-	var str string
-	if bb, err := json.MarshalIndent(v, "", "\t"); err != nil {
-		suite.Fail("marshal", err, v)
-	} else {
-		str = string(bb)
-	}
-	return str
+	suite.server.Close()
 }
 
 func (suite *TestSuiteEnv) TestBooks_FindBooks() {
-	a := suite.Assert()
-
-	db, sqlDB, mock := setupDBMock(suite)
+	db, sqlDB, mock := SetupDBMock(suite)
 	defer sqlDB.Close()
 	models.DB = db
 
-	mock.ExpectQuery(`SELECT \* FROM "books"`).WithArgs().WillReturnRows(sqlmock.NewRows([]string{"id", "title", "author"}).AddRow(100, "The Adventures of Tintin", "Herge").AddRow(200, "Sorcerer Stone", "JK Rowling"))
+	mock.ExpectQuery(QuoteMeta(`SELECT * FROM "books" LIMIT 1000`)).WillReturnRows(sqlmock.NewRows([]string{"id", "title", "author"}).AddRow(100, "The Adventures of Tintin", "Herge").AddRow(200, "Sorcerer Stone", "JK Rowling"))
 
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-
-	controllers.FindBooks(ctx)
-	if err := mock.ExpectationsWereMet(); err != nil {
-		suite.Fail("Mock", err)
-	}
-	a.Equal(200, recorder.Code, "Response Code")
-	var res ResponseBooks
-	if err := json.Unmarshal(recorder.Body.Bytes(), &res); err != nil {
-		a.Error(err)
-	}
-	a.Equal(suite.marshal(ResponseBooks{
+	suite.HttpGet("/books", ResponseBooks{
 		Data: []models.Book{
 			{
 				ID:     100,
@@ -128,169 +82,117 @@ func (suite *TestSuiteEnv) TestBooks_FindBooks() {
 				Author: "JK Rowling",
 			},
 		},
-	}), suite.marshal(res), recorder.Body.String())
+	})
+	if err := mock.ExpectationsWereMet(); err != nil {
+		suite.Fail("Mock", err)
+	}
+}
+
+func (suite *TestSuiteEnv) TestBooks_FindBooks_WithCondition() {
+	db, sqlDB, mock := SetupDBMock(suite)
+	defer sqlDB.Close()
+	models.DB = db
+
+	mock.ExpectQuery(QuoteMeta(`SELECT * FROM "books" WHERE title like $1 AND author like $2 LIMIT 200 OFFSET 100`)).WithArgs("%tintin%", "JK").WillReturnRows(sqlmock.NewRows([]string{"id", "title", "author"}).AddRow(100, "The Adventures of Tintin", "Herge").AddRow(200, "Sorcerer Stone", "JK Rowling"))
+
+	suite.HttpPost("/books", controllers.QueryBookInput{FindQuery: controllers.FindQuery{Offset: 100, Limit: 200}, Title_Like: "%tintin%", Author_Like: "JK"}, ResponseBooks{
+		Data: []models.Book{
+			{
+				ID:     100,
+				Title:  "The Adventures of Tintin",
+				Author: "Herge",
+			},
+			{
+				ID:     200,
+				Title:  "Sorcerer Stone",
+				Author: "JK Rowling",
+			},
+		},
+	})
+	if err := mock.ExpectationsWereMet(); err != nil {
+		suite.Fail("Mock", err)
+	}
 }
 
 func (suite *TestSuiteEnv) TestBooks_FindBook() {
-	a := suite.Assert()
-
-	db, sqlDB, mock := setupDBMock(suite)
+	db, sqlDB, mock := SetupDBMock(suite)
 	defer sqlDB.Close()
 	models.DB = db
 
-	mock.ExpectQuery(`SELECT \* FROM "books" WHERE id = \$1 ORDER BY "books"."id" LIMIT 1`).WithArgs("100").WillReturnRows(sqlmock.NewRows([]string{"id", "title", "author"}).AddRow(100, "The Adventures of Tintin", "Herge"))
+	mock.ExpectQuery(QuoteMeta(`SELECT * FROM "books" WHERE id = $1 ORDER BY "books"."id" LIMIT 1`)).WithArgs("100").WillReturnRows(sqlmock.NewRows([]string{"id", "title", "author"}).AddRow(100, "The Adventures of Tintin", "Herge"))
 
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Params = append(ctx.Params, gin.Param{Key: "id", Value: "100"})
-
-	controllers.FindBook(ctx)
-	if err := mock.ExpectationsWereMet(); err != nil {
-		suite.Fail("Mock", err)
-	}
-	a.Equal(200, recorder.Code, "Response Code")
-	var res ResponseBook
-	if err := json.Unmarshal(recorder.Body.Bytes(), &res); err != nil {
-		a.Error(err)
-	}
-	a.Equal(suite.marshal(ResponseBook{
+	suite.HttpGet("/books/100", ResponseBook{
 		Data: models.Book{
 			ID:     100,
 			Title:  "The Adventures of Tintin",
 			Author: "Herge",
 		},
-	}), suite.marshal(res), recorder.Body.String())
-}
-
-func (suite *TestSuiteEnv) TestBooks_FindBook_NotFound() {
-	a := suite.Assert()
-
-	db, sqlDB, mock := setupDBMock(suite)
-	defer sqlDB.Close()
-	models.DB = db
-
-	mock.ExpectQuery(`SELECT \* FROM "books" WHERE id = \$1 ORDER BY "books"."id" LIMIT 1`).WithArgs("100").WillReturnRows(sqlmock.NewRows([]string{"id", "title", "author"}))
-
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Params = append(ctx.Params, gin.Param{Key: "id", Value: "100"})
-
-	controllers.FindBook(ctx)
+	})
 	if err := mock.ExpectationsWereMet(); err != nil {
 		suite.Fail("Mock", err)
 	}
-	a.Equal(400, recorder.Code, "Response Code")
-	var res ResponseError
-	if err := json.Unmarshal(recorder.Body.Bytes(), &res); err != nil {
-		suite.Fail("Mock", err)
-	}
-	a.Equal(suite.marshal(ResponseError{
-		Error: "Record not found!",
-	}), suite.marshal(res), recorder.Body.String())
 }
-func (suite *TestSuiteEnv) TestBooks_Create() {
-	a := suite.Assert()
 
-	db, sqlDB, mock := setupDBMock(suite)
+func (suite *TestSuiteEnv) TestBooks_Create() {
+	db, sqlDB, mock := SetupDBMock(suite)
 	defer sqlDB.Close()
 	models.DB = db
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(`INSERT INTO "books" \("title","author"\) VALUES \(\$1,\$2\) RETURNING "id"`).WithArgs("The Adventures of Tintin", "Herge").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(100))
+	mock.ExpectQuery(QuoteMeta(`INSERT INTO "books" ("title","author") VALUES ($1,$2) RETURNING "id"`)).WithArgs("The Adventures of Tintin", "Herge").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(100))
 	mock.ExpectCommit()
 
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	bookBytes, _ := json.Marshal(controllers.CreateBookInput{
+	suite.HttpPut("/books", controllers.CreateBookInput{
 		Title:  "The Adventures of Tintin",
 		Author: "Herge",
-	})
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/books", bytes.NewBuffer(bookBytes))
-
-	controllers.CreateBook(ctx)
-	if err := mock.ExpectationsWereMet(); err != nil {
-		suite.Fail("Mock", err)
-	}
-	a.Equal(200, recorder.Code, "Response Code")
-	var res ResponseBook
-	if err := json.Unmarshal(recorder.Body.Bytes(), &res); err != nil {
-		a.Error(err)
-	}
-	a.Equal(suite.marshal(ResponseBook{
+	}, ResponseBook{
 		Data: models.Book{
 			ID:     100,
 			Title:  "The Adventures of Tintin",
 			Author: "Herge",
 		},
-	}), suite.marshal(res), recorder.Body.String())
+	})
+	if err := mock.ExpectationsWereMet(); err != nil {
+		suite.Fail("Mock", err)
+	}
 }
 
 func (suite *TestSuiteEnv) TestBooks_Update() {
-	a := suite.Assert()
-
-	db, sqlDB, mock := setupDBMock(suite)
+	db, sqlDB, mock := SetupDBMock(suite)
 	defer sqlDB.Close()
 	models.DB = db
 
-	mock.ExpectQuery(`SELECT \* FROM "books" WHERE id = \$1 ORDER BY "books"."id" LIMIT 1`).WithArgs("100").WillReturnRows(sqlmock.NewRows([]string{"id", "title", "author"}).AddRow(100, "The Adventures of Tintin", "Herge"))
+	mock.ExpectQuery(QuoteMeta(`SELECT * FROM "books" WHERE id = $1 ORDER BY "books"."id" LIMIT 1`)).WithArgs("100").WillReturnRows(sqlmock.NewRows([]string{"id", "title", "author"}).AddRow(100, "The Adventures of Tintin", "Herge"))
 	mock.ExpectBegin()
-	mock.ExpectExec(`UPDATE "books" SET "title"=\$1,"author"=\$2 WHERE "id" = \$3`).WithArgs("Tintin in Tibet", "Herge", 100).WillReturnResult(driver.RowsAffected(1))
+	mock.ExpectExec(QuoteMeta(`UPDATE "books" SET "title"=$1,"author"=$2 WHERE "id" = $3`)).WithArgs("Tintin in Tibet", "Herge", 100).WillReturnResult(driver.RowsAffected(1))
 	mock.ExpectCommit()
 
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	bookBytes, _ := json.Marshal(controllers.UpdateBookInput{
+	suite.HttpPatch("/books/100", controllers.UpdateBookInput{
 		Title:  "Tintin in Tibet",
 		Author: "Herge",
-	})
-	ctx.Request = httptest.NewRequest(http.MethodPatch, "/books/100", bytes.NewBuffer(bookBytes))
-	ctx.Params = append(ctx.Params, gin.Param{Key: "id", Value: "100"})
-
-	controllers.UpdateBook(ctx)
-	if err := mock.ExpectationsWereMet(); err != nil {
-		suite.Fail("Mock", err)
-	}
-	a.Equal(200, recorder.Code, "Response Code")
-	var res ResponseBook
-	if err := json.Unmarshal(recorder.Body.Bytes(), &res); err != nil {
-		a.Error(err)
-	}
-	a.Equal(suite.marshal(ResponseBook{
+	}, ResponseBook{
 		Data: models.Book{
 			ID:     100,
 			Title:  "Tintin in Tibet",
 			Author: "Herge",
 		},
-	}), suite.marshal(res), recorder.Body.String())
-}
-
-func (suite *TestSuiteEnv) TestBooks_Delete() {
-	a := suite.Assert()
-
-	db, sqlDB, mock := setupDBMock(suite)
-	defer sqlDB.Close()
-	models.DB = db
-
-	mock.ExpectQuery(`SELECT \* FROM "books" WHERE id = \$1 ORDER BY "books"."id" LIMIT 1`).WithArgs("100").WillReturnRows(sqlmock.NewRows([]string{"id", "title", "author"}).AddRow(100, "The Adventures of Tintin", "Herge"))
-	mock.ExpectBegin()
-	mock.ExpectExec(`DELETE FROM "books" WHERE "books"."id" = \$1`).WithArgs(int64(100)).WillReturnResult(sqlmock.NewResult(100, 1))
-	mock.ExpectCommit()
-
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Request = httptest.NewRequest(http.MethodDelete, "/books/100", nil)
-	ctx.Params = append(ctx.Params, gin.Param{Key: "id", Value: "100"})
-
-	controllers.DeleteBook(ctx)
+	})
 	if err := mock.ExpectationsWereMet(); err != nil {
 		suite.Fail("Mock", err)
 	}
-	a.Equal(200, recorder.Code, "Response Code")
-	var res Response
-	if err := json.Unmarshal(recorder.Body.Bytes(), &res); err != nil {
-		a.Error(err)
-	}
-	a.Equal(suite.marshal(Response{
+}
+
+func (suite *TestSuiteEnv) TestBooks_Delete() {
+	db, sqlDB, mock := SetupDBMock(suite)
+	defer sqlDB.Close()
+	models.DB = db
+
+	mock.ExpectQuery(QuoteMeta(`SELECT * FROM "books" WHERE id = $1 ORDER BY "books"."id" LIMIT 1`)).WithArgs("100").WillReturnRows(sqlmock.NewRows([]string{"id", "title", "author"}).AddRow(100, "The Adventures of Tintin", "Herge"))
+	mock.ExpectBegin()
+	mock.ExpectExec(QuoteMeta(`DELETE FROM "books" WHERE "books"."id" = $1`)).WithArgs(int64(100)).WillReturnResult(sqlmock.NewResult(100, 1))
+	mock.ExpectCommit()
+
+	suite.HttpDelete("/books/100", Response{
 		Data: true,
-	}), suite.marshal(res), recorder.Body.String())
+	})
 }

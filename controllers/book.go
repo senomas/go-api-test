@@ -2,11 +2,23 @@ package controllers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/senomas/go-api/models"
-	"gorm.io/gorm/clause"
+	"gorm.io/gorm"
 )
+
+type FindQuery struct {
+	Offset int `json:"offset"`
+	Limit  int `json:"limit" binding:"required"`
+}
+
+type QueryBookInput struct {
+	FindQuery
+	Title_Like  string `json:"title-like"`
+	Author_Like string `json:"author-like"`
+}
 
 type CreateBookInput struct {
 	Title  string `json:"title" binding:"required"`
@@ -18,11 +30,41 @@ type UpdateBookInput struct {
 	Author string `json:"author"`
 }
 
-// GET /books
-// Find all books
+// POST /books
+// Find books
 func FindBooks(c *gin.Context) {
 	var books []models.Book
-	models.DB.Find(&books)
+	var tx *gorm.DB
+	// Validate input
+	var input QueryBookInput
+	if c.Request.Method == "POST" {
+		if err := c.ShouldBindJSON(&input); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		tx = models.DB.Offset(input.Offset).Limit(input.Limit)
+		query := strings.Builder{}
+		var params []any
+		if input.Title_Like != "" {
+			if query.Len() > 0 {
+				query.WriteString(" AND ")
+			}
+			query.WriteString("title like ?")
+			params = append(params, input.Title_Like)
+		}
+		if input.Author_Like != "" {
+			if query.Len() > 0 {
+				query.WriteString(" AND ")
+			}
+			query.WriteString("author like ?")
+			params = append(params, input.Author_Like)
+		}
+		tx.Where(query.String(), params...)
+	} else {
+		tx = models.DB.Limit(1000)
+	}
+
+	tx.Find(&books)
 
 	c.JSON(http.StatusOK, gin.H{"data": books})
 }
@@ -40,7 +82,7 @@ func FindBook(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": book})
 }
 
-// POST /books
+// PUT /books
 // Create new book
 func CreateBook(c *gin.Context) {
 	// Validate input
@@ -62,7 +104,7 @@ func CreateBook(c *gin.Context) {
 func UpdateBook(c *gin.Context) {
 	// Get model if exist
 	var book models.Book
-	if err := models.DB.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", c.Param("id")).First(&book).Error; err != nil {
+	if err := models.DB.Where("id = ?", c.Param("id")).First(&book).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Record not found!"})
 		return
 	}
