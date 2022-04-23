@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -74,10 +73,11 @@ func UpdateBook(c *gin.Context) {
 		return
 	}
 
-	log.Println("UPDATE", input)
-	models.DB.Model(&book).Updates(input)
+	book.Title = input.Title
+	book.Author = input.Author
+	models.DB.Updates(&book)
 
-	c.JSON(http.StatusBadRequest, gin.H{"data": book})
+	c.JSON(http.StatusOK, gin.H{"data": book})
 }
 
 // DELETE /books/:id

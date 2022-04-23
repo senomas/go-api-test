@@ -47,6 +47,14 @@ func TestSuite(t *testing.T) {
 func (suite *TestSuiteEnv) SetupSuite() {
 	log.Println("setup suite")
 	gin.SetMode(gin.ReleaseMode)
+
+	db, mock := setupDBMock(suite)
+
+	mock.ExpectQuery(`SELECT count\(\*\) FROM information_schema\.tables WHERE table_schema = CURRENT_SCHEMA\(\) AND table_name = \$1 AND table_type = \$2`).WithArgs("books", "BASE TABLE").WillReturnRows(sqlmock.NewRows(
+		[]string{"TABLES"}))
+
+	mock.ExpectExec(`CREATE TABLE "books" \("id" bigserial,"title" text,"author" text,PRIMARY KEY \("id"\)\)`).WillReturnResult(driver.RowsAffected(1))
+	db.AutoMigrate(&models.Book{})
 }
 
 // Running after all tests are completed
@@ -80,16 +88,6 @@ func (suite *TestSuiteEnv) marshal(v any) string {
 		str = string(bb)
 	}
 	return str
-}
-
-func (suite *TestSuiteEnv) Test_AutoMigrate_Books() {
-	db, mock := setupDBMock(suite)
-
-	mock.ExpectQuery("SHOW TABLES FROM `` WHERE `Tables_in_` = \\?").WithArgs("books").WillReturnRows(sqlmock.NewRows(
-		[]string{"TABLES"}))
-
-	mock.ExpectExec("CREATE TABLE `books` \\(`id` int unsigned AUTO_INCREMENT,`title` varchar\\(255\\),`author` varchar\\(255\\) , PRIMARY KEY \\(`id`\\)\\)").WillReturnResult(driver.RowsAffected(1))
-	db.AutoMigrate(&models.Book{})
 }
 
 func (suite *TestSuiteEnv) TestBooks_FindBooks() {
@@ -214,7 +212,9 @@ func (suite *TestSuiteEnv) TestBooks_Update() {
 	models.DB = db
 
 	mock.ExpectQuery(`SELECT \* FROM "books" WHERE id = \$1 ORDER BY "books"."id" LIMIT 1`).WithArgs("100").WillReturnRows(sqlmock.NewRows([]string{"id", "title", "author"}).AddRow(100, "The Adventures of Tintin", "Herge"))
-	// mock.ExpectExec(`UPDATExxx`).WithArgs("Herge", "Tintin in Tibet", 100).WillReturnResult(driver.RowsAffected(1))
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE "books" SET "title"=\$1,"author"=\$2 WHERE "id" = \$3`).WithArgs("Tintin in Tibet", "Herge", 100).WillReturnResult(driver.RowsAffected(1))
+	mock.ExpectCommit()
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
