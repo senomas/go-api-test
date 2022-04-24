@@ -22,6 +22,10 @@ type TestContext struct {
 	db    *gorm.DB
 }
 
+type Response struct {
+	Data bool `json:"data"`
+}
+
 type ResponseBooks struct {
 	Data []models.Book `json:"data"`
 }
@@ -53,7 +57,9 @@ func NewTestContext(t *testing.T) *TestContext {
 		ctx.mock.ExpectQuery(test_lib.QuoteMeta(`SELECT count(*) FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = $1 AND table_type = $2`)).WithArgs("books", "BASE TABLE").WillReturnRows(sqlmock.NewRows(
 			[]string{"TABLES"}))
 
-		ctx.mock.ExpectExec(test_lib.QuoteMeta(`CREATE TABLE "books" ("id" bigserial,"title" text,"author" text,PRIMARY KEY ("id"))`)).WithArgs([]driver.Value{}...).WillReturnResult(driver.RowsAffected(1))
+		ctx.mock.ExpectExec(test_lib.QuoteMeta(`CREATE TABLE "books" ("id" bigserial,"title" text,"author" text,"summary" text,PRIMARY KEY ("id"))`)).WithArgs([]driver.Value{}...).WillReturnResult(driver.RowsAffected(1))
+
+		ctx.mock.ExpectExec(test_lib.QuoteMeta(`CREATE UNIQUE INDEX IF NOT EXISTS "idx_books_title" ON "books" ("title")`)).WithArgs([]driver.Value{}...).WillReturnResult(driver.RowsAffected(1))
 
 		db.AutoMigrate(&models.Book{})
 		models.DB = db
@@ -82,7 +88,7 @@ func TestBook_Finds_All(t *testing.T) {
 	ctx.mock.ExpectQuery(test_lib.QuoteMeta(`SELECT * FROM "books" LIMIT 1000`)).WithArgs([]driver.Value{}...).WillReturnRows(sqlmock.NewRows(
 		[]string{"id", "title", "author"}).AddRow(1, "Harry Potter and the Philosopher's Stone", "J. K. Rawling").AddRow(2, "Harry Potter and the Chamber of Secrets", "J. K. Rawling"))
 
-	ctx.api.HttpGet("/books", ResponseBooks{
+	ctx.api.HttpGet("/books", 200, ResponseBooks{
 		Data: []models.Book{
 			{
 				ID:     1,
@@ -105,7 +111,7 @@ func TestBook_Finds_LimitAndOffset(t *testing.T) {
 	ctx.mock.ExpectQuery(test_lib.QuoteMeta(`SELECT * FROM "books" LIMIT 10 OFFSET 30`)).WithArgs([]driver.Value{}...).WillReturnRows(sqlmock.NewRows(
 		[]string{"id", "title", "author"}).AddRow(1, "Harry Potter and the Philosopher's Stone", "J. K. Rawling").AddRow(2, "Harry Potter and the Chamber of Secrets", "J. K. Rawling"))
 
-	ctx.api.HttpGet("/books?offset=30&limit=10", ResponseBooks{
+	ctx.api.HttpGet("/books?offset=30&limit=10", 200, ResponseBooks{
 		Data: []models.Book{
 			{
 				ID:     1,
@@ -128,7 +134,7 @@ func TestBook_Finds_Filter(t *testing.T) {
 	ctx.mock.ExpectQuery(test_lib.QuoteMeta(`SELECT * FROM "books" WHERE title LIKE $1 AND NOT (author = $2) LIMIT 10 OFFSET 30`)).WithArgs("%Harry Potter%", "Lord Voldermort").WillReturnRows(sqlmock.NewRows(
 		[]string{"id", "title", "author"}).AddRow(1, "Harry Potter and the Philosopher's Stone", "J. K. Rawling").AddRow(2, "Harry Potter and the Chamber of Secrets", "J. K. Rawling"))
 
-	ctx.api.HttpPost("/books?offset=30&limit=10", controllers.NewCondition().Like("title", "Harry Potter").Not(controllers.NewCondition().Equal("author", "Lord Voldermort")), ResponseBooks{
+	ctx.api.HttpPost("/books?offset=30&limit=10", controllers.NewQuery(nil, controllers.NewCondition().Like("title", "Harry Potter").Not(controllers.NewCondition().Equal("author", "Lord Voldermort"))), 200, ResponseBooks{
 		Data: []models.Book{
 			{
 				ID:     1,
@@ -139,6 +145,29 @@ func TestBook_Finds_Filter(t *testing.T) {
 				ID:     2,
 				Title:  "Harry Potter and the Chamber of Secrets",
 				Author: "J. K. Rawling",
+			},
+		},
+	})
+}
+
+func TestBook_Finds_SelectTitle(t *testing.T) {
+	ctx := NewTestContext(t)
+	defer ctx.Close()
+
+	ctx.mock.ExpectQuery(test_lib.QuoteMeta(`SELECT "title" FROM "books" LIMIT 10 OFFSET 30`)).WithArgs([]driver.Value{}...).WillReturnRows(sqlmock.NewRows(
+		[]string{"title"}).AddRow("Harry Potter and the Philosopher's Stone").AddRow("Harry Potter and the Chamber of Secrets"))
+
+	ctx.api.HttpPost("/books?offset=30&limit=10", controllers.NewQuery([]string{"title"}, controllers.NewCondition()), 200, ResponseBooks{
+		Data: []models.Book{
+			{
+				ID:     0,
+				Title:  "Harry Potter and the Philosopher's Stone",
+				Author: "",
+			},
+			{
+				ID:     0,
+				Title:  "Harry Potter and the Chamber of Secrets",
+				Author: "",
 			},
 		},
 	})

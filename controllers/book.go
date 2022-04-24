@@ -9,23 +9,24 @@ import (
 )
 
 type CreateBookInput struct {
-	Title  string `json:"title" binding:"required"`
-	Author string `json:"author" binding:"required"`
+	Title   string `json:"title" binding:"required"`
+	Author  string `json:"author" binding:"required"`
+	Summary string `json:"summary"`
 }
 
 type UpdateBookInput struct {
-	Title  string `json:"title"`
-	Author string `json:"author"`
+	Title   string `json:"title"`
+	Author  string `json:"author"`
+	Summary string `json:"summary"`
 }
 
 // GET /books
 // POST /books
 // Find books
 func FindBooks(c *gin.Context) {
-	var books []models.Book
 	tx := models.DB
 	// Validate input
-	var input Condition
+	var query Query
 	if str := c.Query("offset"); str != "" {
 		if i, err := strconv.Atoi(str); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"Offset error": err.Error()})
@@ -43,15 +44,22 @@ func FindBooks(c *gin.Context) {
 		tx = tx.Limit(1000)
 	}
 	if c.Request.Method == "POST" {
-		if err := c.ShouldBindJSON(&input); err != nil {
+		if err := c.ShouldBindJSON(&query); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		where, params := input.Apply("", []any{})
+		if query.Select != nil {
+			tx = tx.Select(query.Select)
+		}
+		where, params := query.Condition.Apply("", []any{})
 		tx.Where(where, params...)
 	}
 
-	tx.Find(&books)
+	var books []models.Book
+	if err := tx.Find(&books).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"data": books})
 }
@@ -62,7 +70,7 @@ func FindBook(c *gin.Context) {
 	// Get model if exist
 	var book models.Book
 	if err := models.DB.Where("id = ?", c.Param("id")).First(&book).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Record not found!"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -80,8 +88,11 @@ func CreateBook(c *gin.Context) {
 	}
 
 	// Create book
-	book := models.Book{Title: input.Title, Author: input.Author}
-	models.DB.Create(&book)
+	book := models.Book{Title: input.Title, Author: input.Author, Summary: input.Summary}
+	if err := models.DB.Create(&book).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"data": book})
 }
@@ -92,7 +103,7 @@ func UpdateBook(c *gin.Context) {
 	// Get model if exist
 	var book models.Book
 	if err := models.DB.Where("id = ?", c.Param("id")).First(&book).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Record not found!"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -105,7 +116,10 @@ func UpdateBook(c *gin.Context) {
 
 	book.Title = input.Title
 	book.Author = input.Author
-	models.DB.Updates(&book)
+	if err := models.DB.Updates(&book).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"data": book})
 }
@@ -116,11 +130,14 @@ func DeleteBook(c *gin.Context) {
 	// Get model if exist
 	var book models.Book
 	if err := models.DB.Where("id = ?", c.Param("id")).First(&book).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Record not found!"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	models.DB.Delete(&book)
+	if err := models.DB.Delete(&book).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"data": true})
 }

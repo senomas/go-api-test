@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestBook_SimpleQuery(t *testing.T) {
-	query := NewCondition().Like("title", "harry potter")
+func TestBook_Simple(t *testing.T) {
+	query := NewQuery([]string{"id", "title"}, NewCondition().Like("title", "harry potter"))
 
 	var bytes []byte
 	if bb, err := json.MarshalIndent(query, "", "  "); err != nil {
@@ -19,20 +19,20 @@ func TestBook_SimpleQuery(t *testing.T) {
 		bytes = bb
 	}
 
-	value := NewCondition()
+	value := NewQuery([]string{}, NewCondition())
 	if err := json.Unmarshal(bytes, &value); err != nil {
 		log.Fatal(err)
 	}
 
 	assert.Equal(t, test_lib.Marshal(t, query), test_lib.Marshal(t, value))
 
-	where, params := value.Apply("", []any{})
+	where, params := value.Condition.Apply("", []any{})
 	assert.Equal(t, "title LIKE ?", where, string(bytes))
 	assert.Equal(t, test_lib.Marshal(t, []any{"%harry potter%"}), test_lib.Marshal(t, params))
 }
 
-func TestBook_Not(t *testing.T) {
-	query := NewCondition().Like("title", "harry potter").Not(NewCondition().Equal("author", "Lord Voldermort"))
+func TestBook_Query(t *testing.T) {
+	query := NewQuery([]string{"title"}, NewCondition().Like("title", "harry potter"))
 
 	var bytes []byte
 	if bb, err := json.MarshalIndent(query, "", "  "); err != nil {
@@ -41,20 +41,39 @@ func TestBook_Not(t *testing.T) {
 		bytes = bb
 	}
 
-	value := NewCondition()
+	value := NewQuery(nil, NewCondition())
+	if err := json.Unmarshal(bytes, &value); err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("VALUE %#v\n", value)
+
+	assert.Equal(t, test_lib.Marshal(t, query), test_lib.Marshal(t, value))
+}
+
+func TestBook_Not(t *testing.T) {
+	query := NewQuery([]string{"id", "title"}, NewCondition().Like("title", "harry potter").Not(NewCondition().Equal("author", "Lord Voldermort")))
+
+	var bytes []byte
+	if bb, err := json.MarshalIndent(query, "", "  "); err != nil {
+		log.Fatal(err)
+	} else {
+		bytes = bb
+	}
+
+	value := NewQuery(nil, NewCondition())
 	if err := json.Unmarshal(bytes, &value); err != nil {
 		log.Fatal(err)
 	}
 
 	assert.Equal(t, test_lib.Marshal(t, query), test_lib.Marshal(t, value))
 
-	where, params := value.Apply("", []any{})
+	where, params := value.Condition.Apply("", []any{})
 	assert.Equal(t, "title LIKE ? AND NOT (author = ?)", where, string(bytes))
 	assert.Equal(t, test_lib.Marshal(t, []any{"%harry potter%", "Lord Voldermort"}), test_lib.Marshal(t, params))
 }
 
 func TestBook_Or(t *testing.T) {
-	query := NewCondition().Like("title", "harry potter").Or(NewCondition().Equal("author", "Lord Voldermort").Equal("author", "Tom Malvolo Riddle"))
+	query := NewQuery([]string{"id", "title"}, NewCondition().Like("title", "harry potter").Or(NewCondition().Equal("author", "Lord Voldermort").Equal("author", "Tom Malvolo Riddle")))
 
 	var bytes []byte
 	if bb, err := json.MarshalIndent(query, "", "  "); err != nil {
@@ -63,14 +82,14 @@ func TestBook_Or(t *testing.T) {
 		bytes = bb
 	}
 
-	value := NewCondition()
+	value := NewQuery(nil, NewCondition())
 	if err := json.Unmarshal(bytes, &value); err != nil {
 		log.Fatal(err)
 	}
 
 	assert.Equal(t, test_lib.Marshal(t, query), test_lib.Marshal(t, value))
 
-	where, params := value.Apply("", []any{})
+	where, params := value.Condition.Apply("", []any{})
 	assert.Equal(t, "title LIKE ? AND (author = ? OR author = ?)", where, string(bytes))
 	assert.Equal(t, test_lib.Marshal(t, []any{"%harry potter%", "Lord Voldermort", "Tom Malvolo Riddle"}), test_lib.Marshal(t, params))
 }

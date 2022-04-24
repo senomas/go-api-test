@@ -41,14 +41,14 @@ func QuoteMeta(r string) string {
 	return "^" + regexp.QuoteMeta(r) + "$"
 }
 
-func (api *Api) HttpGet(path string, responseData any) (string, any) {
+func (api *Api) HttpGet(path string, statusCode int, responseData any) (string, any) {
 	var resp *http.Response
 	if r, err := http.Get(api.Server.URL + path); err != nil {
 		api.T.Fatal("Http Error", err)
 	} else {
 		resp = r
 	}
-	assert.Equal(api.T, 200, resp.StatusCode)
+	assert.Equal(api.T, statusCode, resp.StatusCode)
 	val, ok := resp.Header["Content-Type"]
 
 	if !ok {
@@ -70,7 +70,7 @@ func (api *Api) HttpGet(path string, responseData any) (string, any) {
 	return body, res
 }
 
-func (api *Api) HttpPost(path string, requestData any, responseData any) (string, any) {
+func (api *Api) HttpPost(path string, requestData any, statusCode int, responseData any) (string, any) {
 	requestDataBytes, _ := json.Marshal(requestData)
 
 	var resp *http.Response
@@ -79,7 +79,7 @@ func (api *Api) HttpPost(path string, requestData any, responseData any) (string
 	} else {
 		resp = r
 	}
-	assert.Equal(api.T, 200, resp.StatusCode)
+	assert.Equal(api.T, statusCode, resp.StatusCode)
 	val, ok := resp.Header["Content-Type"]
 
 	if !ok {
@@ -101,7 +101,7 @@ func (api *Api) HttpPost(path string, requestData any, responseData any) (string
 	return body, res
 }
 
-func (api *Api) HttpPut(path string, requestData any, responseData any) (string, any) {
+func (api *Api) HttpPut(path string, requestData any, statusCode int, responseData any) (string, any) {
 	requestDataBytes, _ := json.Marshal(requestData)
 
 	var resp *http.Response
@@ -115,7 +115,7 @@ func (api *Api) HttpPut(path string, requestData any, responseData any) (string,
 			resp = r
 		}
 	}
-	assert.Equal(api.T, 200, resp.StatusCode)
+	assert.Equal(api.T, statusCode, resp.StatusCode)
 	val, ok := resp.Header["Content-Type"]
 
 	if !ok {
@@ -137,7 +137,7 @@ func (api *Api) HttpPut(path string, requestData any, responseData any) (string,
 	return body, res
 }
 
-func (api *Api) HttpPatch(path string, requestData any, responseData any) (string, any) {
+func (api *Api) HttpPatch(path string, requestData any, statusCode int, responseData any) (string, any) {
 	requestDataBytes, _ := json.Marshal(requestData)
 
 	var resp *http.Response
@@ -151,7 +151,7 @@ func (api *Api) HttpPatch(path string, requestData any, responseData any) (strin
 			resp = r
 		}
 	}
-	assert.Equal(api.T, 200, resp.StatusCode)
+	assert.Equal(api.T, statusCode, resp.StatusCode)
 	val, ok := resp.Header["Content-Type"]
 
 	if !ok {
@@ -173,7 +173,7 @@ func (api *Api) HttpPatch(path string, requestData any, responseData any) (strin
 	return body, res
 }
 
-func (api *Api) HttpDelete(path string, responseData any) (string, any) {
+func (api *Api) HttpDelete(path string, statusCode int, responseData any) (string, any) {
 	var resp *http.Response
 	if req, err := http.NewRequest(http.MethodDelete, api.Server.URL+path, nil); err != nil {
 		api.T.Fatal(api.T, "Http Error", err)
@@ -185,7 +185,7 @@ func (api *Api) HttpDelete(path string, responseData any) (string, any) {
 			resp = r
 		}
 	}
-	assert.Equal(api.T, 200, resp.StatusCode)
+	assert.Equal(api.T, statusCode, resp.StatusCode)
 	val, ok := resp.Header["Content-Type"]
 
 	if !ok {

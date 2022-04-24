@@ -6,6 +6,11 @@ import (
 	"log"
 )
 
+type Query struct {
+	Select    []string  `json:"select"`
+	Condition Condition `json:"condition"`
+}
+
 type Condition struct {
 	op      string
 	entries []any
@@ -15,6 +20,14 @@ type findQueryOp struct {
 	op    string
 	field string
 	value any
+}
+
+func Fields(fields ...string) []string {
+	return fields
+}
+
+func NewQuery(Select []string, condition *Condition) *Query {
+	return &Query{Select: Select, Condition: *condition}
 }
 
 func NewCondition() *Condition {
@@ -52,8 +65,8 @@ func (q *Condition) Apply(where string, params []any) (string, []any) {
 }
 
 func (q *Condition) Not(sub *Condition) *Condition {
-	nq := &Condition{op: "NOT", entries: []any{*sub}}
-	q.entries = append(q.entries, *nq)
+	nq := Condition{op: "NOT", entries: []any{*sub}}
+	q.entries = append(q.entries, nq)
 	return q
 }
 
@@ -70,6 +83,11 @@ func (q *Condition) Equal(field string, value any) *Condition {
 
 func (q *Condition) Like(field string, value string) *Condition {
 	q.entries = append(q.entries, findQueryOp{op: "LIKE", field: field, value: "%" + value + "%"})
+	return q
+}
+
+func (q *Condition) ILike(field string, value string) *Condition {
+	q.entries = append(q.entries, findQueryOp{op: "ILIKE", field: field, value: "%" + value + "%"})
 	return q
 }
 
