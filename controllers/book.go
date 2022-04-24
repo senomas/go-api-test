@@ -2,23 +2,11 @@ package controllers
 
 import (
 	"net/http"
-	"strings"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/senomas/go-api/models"
-	"gorm.io/gorm"
 )
-
-type FindQuery struct {
-	Offset int `json:"offset"`
-	Limit  int `json:"limit" binding:"required"`
-}
-
-type QueryBookInput struct {
-	FindQuery
-	Title_Like  string `json:"title-like"`
-	Author_Like string `json:"author-like"`
-}
 
 type CreateBookInput struct {
 	Title  string `json:"title" binding:"required"`
@@ -30,38 +18,37 @@ type UpdateBookInput struct {
 	Author string `json:"author"`
 }
 
+// GET /books
 // POST /books
 // Find books
 func FindBooks(c *gin.Context) {
 	var books []models.Book
-	var tx *gorm.DB
+	tx := models.DB
 	// Validate input
-	var input QueryBookInput
+	var input Condition
+	if str := c.Query("offset"); str != "" {
+		if i, err := strconv.Atoi(str); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"Offset error": err.Error()})
+		} else {
+			tx = tx.Offset(i)
+		}
+	}
+	if str := c.Query("limit"); str != "" {
+		if i, err := strconv.Atoi(str); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"Limit error": err.Error()})
+		} else {
+			tx = tx.Limit(i)
+		}
+	} else {
+		tx = tx.Limit(1000)
+	}
 	if c.Request.Method == "POST" {
 		if err := c.ShouldBindJSON(&input); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		tx = models.DB.Offset(input.Offset).Limit(input.Limit)
-		query := strings.Builder{}
-		var params []any
-		if input.Title_Like != "" {
-			if query.Len() > 0 {
-				query.WriteString(" AND ")
-			}
-			query.WriteString("title like ?")
-			params = append(params, input.Title_Like)
-		}
-		if input.Author_Like != "" {
-			if query.Len() > 0 {
-				query.WriteString(" AND ")
-			}
-			query.WriteString("author like ?")
-			params = append(params, input.Author_Like)
-		}
-		tx.Where(query.String(), params...)
-	} else {
-		tx = models.DB.Limit(1000)
+		where, params := input.Apply("", []any{})
+		tx.Where(where, params...)
 	}
 
 	tx.Find(&books)
