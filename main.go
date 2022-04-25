@@ -3,13 +3,12 @@ package main
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/senomas/go-api/controllers"
-	"github.com/senomas/go-api/models"
 )
 
-func xmain() {
+func main() {
 	r := gin.Default()
+	r.SetTrustedProxies([]string{"0.0.0.0"})
 
-	models.ConnectDatabase()
 	controllers.SetupRoutes(r)
 
 	r.Run()

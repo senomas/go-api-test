@@ -1,16 +1,16 @@
-package controllers
+package models
 
 import (
 	"encoding/json"
 	"log"
 	"testing"
 
-	"github.com/senomas/go-api/test_lib"
+	test_lib "github.com/senomas/go-api/test/lib"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestBook_Simple(t *testing.T) {
-	query := NewQuery([]string{"id", "title"}, NewCondition().Like("title", "harry potter"))
+	query := NewQuery([]string{"id", "title"}, NewCondition().Like("title", "harry potter"), nil)
 
 	var bytes []byte
 	if bb, err := json.MarshalIndent(query, "", "  "); err != nil {
@@ -19,7 +19,7 @@ func TestBook_Simple(t *testing.T) {
 		bytes = bb
 	}
 
-	value := NewQuery([]string{}, NewCondition())
+	value := NewQuery(nil, nil, nil)
 	if err := json.Unmarshal(bytes, &value); err != nil {
 		log.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestBook_Simple(t *testing.T) {
 }
 
 func TestBook_Query(t *testing.T) {
-	query := NewQuery([]string{"title"}, NewCondition().Like("title", "harry potter"))
+	query := NewQuery([]string{"title"}, NewCondition().Like("title", "harry potter"), nil)
 
 	var bytes []byte
 	if bb, err := json.MarshalIndent(query, "", "  "); err != nil {
@@ -41,17 +41,16 @@ func TestBook_Query(t *testing.T) {
 		bytes = bb
 	}
 
-	value := NewQuery(nil, NewCondition())
+	value := NewQuery(nil, nil, nil)
 	if err := json.Unmarshal(bytes, &value); err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("VALUE %#v\n", value)
 
 	assert.Equal(t, test_lib.Marshal(t, query), test_lib.Marshal(t, value))
 }
 
 func TestBook_Not(t *testing.T) {
-	query := NewQuery([]string{"id", "title"}, NewCondition().Like("title", "harry potter").Not(NewCondition().Equal("author", "Lord Voldermort")))
+	query := NewQuery([]string{"id", "title"}, NewCondition().Like("title", "harry potter").Not(NewCondition().Equal("author", "Lord Voldermort")), nil)
 
 	var bytes []byte
 	if bb, err := json.MarshalIndent(query, "", "  "); err != nil {
@@ -60,7 +59,7 @@ func TestBook_Not(t *testing.T) {
 		bytes = bb
 	}
 
-	value := NewQuery(nil, NewCondition())
+	value := NewQuery(nil, nil, nil)
 	if err := json.Unmarshal(bytes, &value); err != nil {
 		log.Fatal(err)
 	}
@@ -73,7 +72,7 @@ func TestBook_Not(t *testing.T) {
 }
 
 func TestBook_Or(t *testing.T) {
-	query := NewQuery([]string{"id", "title"}, NewCondition().Like("title", "harry potter").Or(NewCondition().Equal("author", "Lord Voldermort").Equal("author", "Tom Malvolo Riddle")))
+	query := NewQuery([]string{"id", "title"}, NewCondition().Like("title", "harry potter").Or(NewCondition().Equal("author", "Lord Voldermort").Equal("author", "Tom Malvolo Riddle")), nil)
 
 	var bytes []byte
 	if bb, err := json.MarshalIndent(query, "", "  "); err != nil {
@@ -82,7 +81,7 @@ func TestBook_Or(t *testing.T) {
 		bytes = bb
 	}
 
-	value := NewQuery(nil, NewCondition())
+	value := NewQuery(nil, nil, nil)
 	if err := json.Unmarshal(bytes, &value); err != nil {
 		log.Fatal(err)
 	}

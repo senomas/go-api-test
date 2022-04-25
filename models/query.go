@@ -1,14 +1,21 @@
-package controllers
+package models
 
 import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 )
 
 type Query struct {
-	Select    []string  `json:"select"`
-	Condition Condition `json:"condition"`
+	Select    []string     `json:"select"`
+	Condition Condition    `json:"condition"`
+	OrderBy   QueryOrderBy `json:"orderBy"`
+}
+
+type QueryOrderBy struct {
+	Field string `json:"f"`
+	Desc  bool   `json:"desc"`
 }
 
 type Condition struct {
@@ -26,12 +33,27 @@ func Fields(fields ...string) []string {
 	return fields
 }
 
-func NewQuery(Select []string, condition *Condition) *Query {
-	return &Query{Select: Select, Condition: *condition}
+func NewQuery(Select []string, condition *Condition, orderBy *QueryOrderBy) *Query {
+	if condition == nil {
+		condition = &Condition{}
+	}
+	if orderBy == nil {
+		orderBy = &QueryOrderBy{}
+	}
+	return &Query{Select: Select, Condition: *condition, OrderBy: *orderBy}
 }
 
 func NewCondition() *Condition {
 	return &Condition{op: "AND", entries: []any{}}
+}
+
+func (q *Query) String() string {
+	if bb, err := json.Marshal(q); err != nil {
+		log.Panic(err)
+	} else {
+		return url.QueryEscape(string(bb))
+	}
+	return ""
 }
 
 func (q *Condition) Apply(where string, params []any) (string, []any) {
